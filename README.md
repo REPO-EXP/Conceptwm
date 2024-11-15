@@ -1,1 +1,0 @@
-# The Implementation of Conceptwm
