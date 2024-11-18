@@ -1,17 +1,7 @@
-import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
 import torch.nn as nn
-
-from torch.utils.data import Dataset
-import torch.nn.init as init
-import torchvision.models.efficientnet as efficientnet
-from torchvision.models.efficientnet import EfficientNet_B1_Weights
-from torchvision.models.efficientnet import EfficientNet_B2_Weights
-import lpips
-import timm
-
 from torchvision import models
 
     
