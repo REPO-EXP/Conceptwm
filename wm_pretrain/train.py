@@ -1,3 +1,5 @@
+#the pretrained implementation is from https://github.com/Georgefwt/AquaLoRA/tree/master/train
+
 import sys
 sys.path.append("../")
 import os
