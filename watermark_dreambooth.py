@@ -713,20 +713,14 @@ def weight_modulation(
         eta = torch.clamp(adv_images - wm_tensor, min=-eps, max=+eps)
         perturbed_images=(wm_tensor+eta).detach_()
 
-        
-        
         optimizer.zero_grad()
         perturbed_images.requires_grad_(True)
         # change to BCE loss
         image=decode_latents(perturbed_images.to(vae.dtype))
-        
         decoded_msg = sec_decoder(image.to(next(sec_decoder.parameters()).dtype))
-        
         labels = F.one_hot(msg_val.unsqueeze(0).expand(decoded_msg.shape[0],-1), num_classes=2).float()
-
         msgloss = F.binary_cross_entropy_with_logits(decoded_msg, labels.cuda())
         loss=msgloss
-        # loss=0.95*msgloss
         loss.backward()
         optimizer.step()
         
