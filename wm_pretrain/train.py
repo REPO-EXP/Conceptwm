@@ -89,11 +89,12 @@ def generate_random_mask(batch_size, height=512, width=512):
     return mask
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument('--pretrained_model_name_or_path', type=str, default='../../stable-diffusion-v1-4/')
+argparser.add_argument('--pretrained_model_name_or_path', type=str, default='../../stable-diffusion-2-1-base/')
 argparser.add_argument('--epochs', type=int, default=40)
 argparser.add_argument('--batch_size', type=int, default=2)
-argparser.add_argument('--bit_num', type=int, default=32)
+argparser.add_argument('--bit_num', type=int, default=48)
 argparser.add_argument('--resume_from_ckpt', type=str, default=None)
+# argparser.add_argument('--resume_from_ckpt', type=str, default='./checkpoints/checkpoints/state_dict_0.pth')
 argparser.add_argument('--dataset', type=str,default='coco/ground_truth/')
 argparser.add_argument('--output_dir', default='checkpoints')
 argparser.add_argument('--warmup', default=True)
@@ -162,6 +163,8 @@ def gen_combined_latents(latents, wm_latent, scale=1.0):
     watermarked_latents = latents + wm_template * scale
     return watermarked_latents
 
+
+
 all_iter = args.epochs * len(train_loader)
 pbar = tqdm(total=all_iter)
 iterations = 0
@@ -181,7 +184,7 @@ for epoch in range(current_epoch, current_epoch + args.epochs):
         mask_tensor = generate_random_mask(args.batch_size).cuda()
         latents = vae.encode(oimage*mask_tensor).latent_dist.sample().detach()
         msg = torch.randint(0, 2, (args.batch_size, args.bit_num)).cuda()
-        _, wm_latent = sec_encoder(latents, msg.float())
+        a, wm_latent = sec_encoder(latents, msg.float())
         if warmup:
             watermarked_latents = gen_combined_latents(latents, wm_latent, scale=0.03)
         else:
@@ -189,7 +192,7 @@ for epoch in range(current_epoch, current_epoch + args.epochs):
         clean_image = decode_latents(latents).detach()
         watermarked_image = decode_latents(watermarked_latents)
         lpips_loss = loss_fn_alex(clean_image, watermarked_image).mean()
-        channel_loss = Channel_Loss(clean_image, watermarked_image)
+        channel_loss = Channel_Loss(clean_image, watermarked_image,10)
         if epoch - current_epoch > 12 or args.resume_from_ckpt is not None:
             watermarked_image = noiser([watermarked_image,None],[0.4, 0.1, 0.2, 0.05, 0.1, 0.15])[0]
         else:

@@ -8,90 +8,75 @@ from torch.utils.data import Dataset
 import torch.nn.init as init
 import torchvision.models.efficientnet as efficientnet
 from torchvision.models.efficientnet import EfficientNet_B1_Weights
+from torchvision.models.efficientnet import EfficientNet_B2_Weights
 import lpips
 import timm
 
-def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
+from torchvision import models
 
-def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
-    if dims == 1:
-        return nn.Conv1d(*args, **kwargs)
-    elif dims == 2:
-        return nn.Conv2d(*args, **kwargs)
-    elif dims == 3:
-        return nn.Conv3d(*args, **kwargs)
-    raise ValueError(f"unsupported dimensions: {dims}")
+    
+class SecretEncoder(nn.Module):
+    def __init__(self, secret_len, base_res=32, resolution=64):
+        super(SecretEncoder, self).__init__()
+        
+        self.secret_projection = nn.Sequential(
+            nn.Linear(secret_len, base_res * base_res), 
+            nn.ReLU(inplace=True),
+            View(-1, 1, base_res, base_res), 
+            ResidualBlock(1, secret_len),
+            nn.Upsample(size=(64, 64), mode='bilinear', align_corners=False),
+            nn.Conv2d(secret_len, secret_len, kernel_size=3, padding=1, groups=64),
+            nn.ReLU(inplace=True),
+            ResidualBlock(secret_len, secret_len//2),
+            nn.Conv2d(secret_len//2, 4, kernel_size=3, padding=1), 
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x, c):
+        secret_map = self.secret_projection(c)     
+        x = x + secret_map 
+        return secret_map,x
+
+
 
 class View(nn.Module):
     def __init__(self, *shape):
-        super().__init__()
+        super(View, self).__init__()
         self.shape = shape
 
     def forward(self, x):
-        return x.view(*self.shape)
+        return x.view(self.shape)
 
-class Repeat(nn.Module):
-    def __init__(self, *sizes):
-        super(Repeat, self).__init__()
-        self.sizes = sizes
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.relu = nn.ReLU(inplace=True)
+        if in_channels != out_channels:
+            self.match_channels = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, x):
-        # We assume x has shape (N, C, H, W) and sizes is (H', W')
-        return x.repeat(1, *self.sizes)
-
-class SecretEncoder(nn.Module):
-    def __init__(self, secret_len, base_res=32, resolution=64) -> None:
-        super().__init__()
-        log_resolution = int(np.log2(resolution))
-        log_base = int(np.log2(base_res))
-        self.secret_len = secret_len
-        self.secret_scaler = nn.Sequential(
-            nn.Linear(secret_len, base_res*base_res),
-            nn.SiLU(),
-            View(-1, 1, base_res, base_res),
-            Repeat(4, 1, 1),
-            nn.Upsample(scale_factor=(2**(log_resolution-log_base), 2**(log_resolution-log_base))),  # chx16x16 -> chx256x256
-            zero_module(conv_nd(2, 4, 4, 3, padding=1))
-        )  # secret len -> ch x res x res
+        residual = x
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        if residual.size(1) != out.size(1):
+            residual = self.match_channels(residual)
+        return out + residual
     
-    def copy_encoder_weight(self, ae_model):
-        # misses, ignores = self.load_state_dict(ae_state_dict, strict=False)
-        return None
-
-    def encode(self, x):
-        x = self.secret_scaler(x)
-        return x
-    
-    def forward(self, x, c):
-        # x: [B, C, H, W], c: [B, secret_len]
-        c = self.encode(c)
-        c = F.interpolate(
-            c, size=(x.shape[2], x.shape[3]), mode='bilinear'
-        )
-        x = x + c
-        return x, c
-
-
 class SecretDecoder(nn.Module):
     def __init__(self, output_size=64):
         super(SecretDecoder, self).__init__()
-        self.output_size=output_size
-        self.model = efficientnet.efficientnet_b1(weights=EfficientNet_B1_Weights.IMAGENET1K_V1)
-        self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, output_size*2, bias=True)
+        self.output_size = output_size
+        self.model = models.resnet50(pretrained=True)
+        self.model.fc = nn.Linear(self.model.fc.in_features, output_size * 2)
 
     def forward(self, x):
-        x = F.interpolate(
-            x, size=(512, 512), mode='bilinear'
-        )
-        decoded = self.model(x).view(-1, self.output_size, 2)
+        x = F.interpolate(x, size=(512, 512), mode='bilinear', align_corners=False)
+        decoded = self.model(x).view(-1, self.output_size, 2) 
+        
         return decoded
-
+    
