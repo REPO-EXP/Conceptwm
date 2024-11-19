@@ -774,7 +774,7 @@ import numpy as np
 weight_dtype = torch.float16
 from utils.models import SecretEncoder,SecretDecoder
 sec_decoder = SecretDecoder(output_size=48).to(accelerator.device, dtype=weight_dtype)
-models = torch.load('./wm_pretrain/checkpoints_48bit/checkpoints/state_dict_46.pth')
+models = torch.load('./wm_pretrain/checkpoints_48bit/checkpoints/pretrained_latentwm.pth')
 sec_decoder.load_state_dict(models['sec_decoder'])
 sec_decoder.requires_grad_(False)
 msg_val = torch.tensor(np.load('./secret_48.npy')).to('cuda')
